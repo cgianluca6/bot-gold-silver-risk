@@ -13,11 +13,11 @@ MY_CHAT_ID = "929066398"
 bot = telebot.TeleBot(TOKEN)
 
 @app.route('/')
-def health(): return "Bot Gold/Silver/CHF Ready", 200
+def health(): return "Bot Gold/Silver CHF-USD Ready", 200
 
 def get_market_status():
     try:
-        # Récupération des métaux (USD) et du taux USD/CHF
+        # Récupération des données
         gold = yf.Ticker("GC=F").history(period="2d")
         silver = yf.Ticker("SI=F").history(period="2d")
         usd_chf_ticker = yf.Ticker("USDCHF=X").history(period="1d")
@@ -26,10 +26,10 @@ def get_market_status():
         s_once_usd = silver['Close'].iloc[-1]
         rate = usd_chf_ticker['Close'].iloc[-1]
         
-        # Facteur de conversion Once Troy -> Kilo (1 kg = 32.1507 onces)
+        # Facteur de conversion Once -> Kilo (32.1507)
         to_kilo = 32.1507
         
-        data = {
+        return {
             "rate": rate,
             "ratio": g_once_usd / s_once_usd,
             "g_once_usd": g_once_usd,
@@ -41,56 +41,55 @@ def get_market_status():
             "vol": silver['Volume'].iloc[-1],
             "avg_vol": yf.Ticker("SI=F").history(period="5d")['Volume'].mean()
         }
-        return data
     except Exception as e:
         print(f"Erreur data : {e}")
         return None
 
-# --- 2. SURVEILLANCE ET ALERTES AUTOMATIQUES ---
+# --- 2. SURVEILLANCE ET ALERTES ---
 def auto_monitor():
     while True:
         d = get_market_status()
         if d and MY_CHAT_ID != "929066398":
+            # Construction du message avec les deux blocs bien séparés
             msg = (
-                f"🕒 **RAPPORT HORAIRE DES COURS**\n"
-                f"━━━━━━━━━━━━━━━\n"
-                f"🇨🇭 **EN FRANCS SUISSES (CHF)**\n"
+                f"🕒 **RAPPORT HORAIRE DES COURS**\n\n"
+                f"🇨🇭 **PRIX EN FRANCS SUISSES (CHF)**\n"
                 f"🟡 Or l'once : `{d['g_once_chf']:.2f} CHF`\n"
                 f"⚪️ Argent l'once : `{d['s_once_chf']:.2f} CHF`\n"
-                f"⚪️ Argent le kilo : `{d['s_kilo_chf']:,.2f} CHF`\n"
-                f"━━━━━━━━━━━━━━━\n"
-                f"🇺🇸 **EN DOLLARS (USD)**\n"
+                f"⚪️ Argent le kilo : `{d['s_kilo_chf']:,.2f} CHF`\n\n"
+                f"🇺🇸 **PRIX EN DOLLARS (USD)**\n"
                 f"🟡 Or l'once : `${d['g_once_usd']:.2f}`\n"
                 f"⚪️ Argent l'once : `${d['s_once_usd']:.2f}`\n"
-                f"⚪️ Argent le kilo : `${d['s_kilo_usd']:,.2f}`\n"
-                f"━━━━━━━━━━━━━━━\n"
+                f"⚪️ Argent le kilo : `${d['s_kilo_usd']:,.2f}`\n\n"
                 f"⚖️ **Ratio Or/Arg** : `{d['ratio']:.2f}`\n"
-                f"📈 **Taux** : 1$ = `{d['rate']:.4f} CHF`"
+                f"📈 **Change** : 1$ = `{d['rate']:.4f} CHF`"
             )
             
             try:
                 bot.send_message(MY_CHAT_ID, msg, parse_mode='Markdown')
             except: pass
 
-            # Alerte Manipulation (Volume > 2.5x la moyenne)
+            # Alerte Manipulation
             if d['vol'] > (d['avg_vol'] * 2.5):
-                alert = (f"🚨 **ALERTE MANIPULATION COMEX**\n"
+                alert = (f"🚨 **ALERTE VOLUME COMEX**\n"
                          f"Volume massif sur l'argent papier !\n"
-                         f"Volume : `{int(d['vol'])}` (Anomalie détectée)")
+                         f"Volume : `{int(d['vol'])}`")
                 bot.send_message(MY_CHAT_ID, alert, parse_mode='Markdown')
 
-        time.sleep(3600) # Attendre 1 heure
+        time.sleep(3600)
 
 # --- 3. COMMANDES ---
 @bot.message_handler(commands=['start', 'check'])
 def manual_check(message):
     d = get_market_status()
     if d:
-        text = (f"📊 **COURS ACTUELS (CHF)**\n\n"
-                f"🟡 Or once : `{d['g_once_chf']:.2f} CHF`\n"
-                f"⚪️ Arg once : `{d['s_once_chf']:.2f} CHF`\n"
-                f"⚪️ Arg kilo : `{d['s_kilo_chf']:,.2f} CHF`\n\n"
-                f"⚖️ Ratio : `{d['ratio']:.2f}`")
+        text = (
+            f"📊 **COURS ACTUELS**\n\n"
+            f"🇨🇭 `{d['g_once_chf']:.2f} CHF` (Or/Oz)\n"
+            f"🇨🇭 `{d['s_kilo_chf']:,.2f} CHF` (Arg/Kg)\n\n"
+            f"🇺🇸 `${d['g_once_usd']:.2f}` (Or/Oz)\n"
+            f"🇺🇸 `${d['s_kilo_usd']:,.2f}` (Arg/Kg)"
+        )
         bot.reply_to(message, text, parse_mode='Markdown')
     else:
         bot.reply_to(message, "Données indisponibles.")
@@ -102,5 +101,4 @@ def show_id(message):
 if __name__ == "__main__":
     threading.Thread(target=auto_monitor, daemon=True).start()
     threading.Thread(target=lambda: bot.infinity_polling(), daemon=True).start()
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
