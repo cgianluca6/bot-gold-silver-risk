@@ -10,7 +10,7 @@ from flask import Flask
 app = Flask(__name__)
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 # N'oubliez pas de mettre votre ID numérique ici
-MY_CHAT_ID = os.environ.get('MY_CHAT_ID', 'VOTRE_ID_NUMERIQUE') 
+MY_CHAT_ID = os.environ.get('MY_CHAT_ID', '929066398') 
 bot = telebot.TeleBot(TOKEN)
 
 @app.route('/')
@@ -46,7 +46,7 @@ def get_market_status():
 def auto_monitor():
     while True:
         data = get_market_status()
-        if data and MY_CHAT_ID != "VOTRE_ID_NUMERIQUE":
+        if data and MY_CHAT_ID != "929066398":
             g_u, g_c, s_u, s_c, r, vol, avg_v, change, rate = data
             
             report = (f"🕒 **Rapport Horaire (CHF/USD)**\n\n"
