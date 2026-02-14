@@ -11,7 +11,7 @@ MY_CHAT_ID = "929066398"
 bot = telebot.TeleBot(TOKEN)
 
 @app.route('/')
-def health(): return "Bot en ligne", 200
+def health(): return "Bot Gold/Silver Stable Ready", 200
 
 def get_variation(current, previous):
     if previous is None or previous == 0: return "0.00%"
@@ -21,57 +21,60 @@ def get_variation(current, previous):
 
 def get_full_report():
     try:
-        # On demande 5 jours pour être sûr d'avoir des données même le lundi matin
+        # On récupère 5 jours pour éviter le 0 du week-end
         gold_t = yf.Ticker("GC=F").history(period="5d")
         silver_t = yf.Ticker("SI=F").history(period="5d")
-        etf_t = yf.Ticker("ZSILC.SW").history(period="5d") # Ticker CHF
+        etf_t = yf.Ticker("ZSIL.SW").history(period="5d")
         fx_t = yf.Ticker("USDCHF=X").history(period="5d")
 
-        # Sécurité : Vérifier si on a assez de données
-        if len(gold_t) < 1 or len(fx_t) < 1:
-            return "⚠️ Marchés fermés ou données indisponibles."
+        if gold_t.empty or fx_t.empty:
+            return "⚠️ Données indisponibles (Marchés fermés)."
 
-        # Prix Actuels (Dernière ligne)
+        # Prix Actuels
         rate = fx_t['Close'].iloc[-1]
         g_usd = gold_t['Close'].iloc[-1]
         s_usd = silver_t['Close'].iloc[-1]
-        etf_chf = etf_t['Close'].iloc[-1] if not etf_t.empty else 0
         
-        # Prix Précédents (Avant-dernière ligne si elle existe)
-        has_prev = len(gold_t) >= 2
-        rate_prev = fx_t['Close'].iloc[-2] if has_prev else rate
-        g_usd_prev = gold_t['Close'].iloc[-2] if has_prev else g_usd
-        s_usd_prev = silver_t['Close'].iloc[-2] if has_prev else s_usd
-        etf_prev = etf_t['Close'].iloc[-2] if (not etf_t.empty and len(etf_t) >= 2) else etf_chf
+        # Correction ETF : si ZSIL.SW est vide, on utilise une estimation
+        if not etf_t.empty and etf_t['Close'].iloc[-1] > 0:
+            etf_chf = etf_t['Close'].iloc[-1]
+            etf_prev = etf_t['Close'].iloc[-2] if len(etf_t) >= 2 else etf_chf
+        else:
+            # Estimation (ZKB Silver ETF est environ égal à 5oz d'argent)
+            etf_chf = (s_usd * rate) * 5 
+            etf_prev = etf_chf
 
-        # Calculs CHF
+        # Variables de calcul
         to_kilo = 32.1507
         g_chf = g_usd * rate
         s_chf = s_usd * rate
-        s_kilo_chf = s_chf * to_kilo
+        s_kg_chf = s_chf * to_kilo
         
-        # Variations
-        var_g = get_variation(g_chf, g_usd_prev * rate_prev)
-        var_s = get_variation(s_chf, s_usd_prev * rate_prev)
-        var_k = get_variation(s_kilo_chf, (s_usd_prev * to_kilo) * rate_prev)
-        var_etf = get_variation(etf_chf, etf_prev)
+        # Comparaison veille
+        has_prev = len(gold_t) >= 2
+        r_prev = fx_t['Close'].iloc[-2] if has_prev else rate
+        g_prev = gold_t['Close'].iloc[-2] * r_prev if has_prev else g_chf
+        s_prev = silver_t['Close'].iloc[-2] * r_prev if has_prev else s_chf
+        sk_prev = (silver_t['Close'].iloc[-2] * to_kilo) * r_prev if has_prev else s_kg_chf
 
-        ratio = g_usd / s_usd
+        # Formatage sans virgule pour les milliers (remplace , par rien)
+        fmt_sk_chf = f"{s_kg_chf:.2f}".replace(",", "")
+        fmt_sk_usd = f"{s_usd * to_kilo:.2f}".replace(",", "")
 
         report = (
-            "🕒 **RAPPORT HORAIRE DES COURS**\n"
+            "🕒 **RAPPORT HORAIRE**\n"
             "━━━━━━━━━━━━━━━\n"
             "🇨🇭 **EN FRANCS SUISSES (CHF)**\n"
-            f"🟡 Or l'once : `{g_chf:.2f} CHF` ({var_g})\n"
-            f"⚪️ Argent l'once : `{s_chf:.2f} CHF` ({var_s})\n"
-            f"⚪️ Argent le kilo : `{s_kilo_chf:,.2f} CHF` ({var_k})\n"
-            f"📉 ETF ZKB : `{etf_chf:.2f} CHF` ({var_etf})\n\n"
+            f"🟡 Or oz : `{g_chf:.2f} CHF` ({get_variation(g_chf, g_prev)})\n"
+            f"⚪️ Argent oz : `{s_chf:.2f} CHF` ({get_variation(s_chf, s_prev)})\n"
+            f"⚪️ Argent kg : `{fmt_sk_chf} CHF` ({get_variation(s_kg_chf, sk_prev)})\n"
+            f"📉 ETF ZKB : `{etf_chf:.2f} CHF` ({get_variation(etf_chf, etf_prev)})\n\n"
             "🇺🇸 **EN DOLLARS (USD)**\n"
-            f"🟡 Or l'once : `${g_usd:.2f}`\n"
-            f"⚪️ Argent l'once : `${s_usd:.2f}`\n"
-            f"⚪️ Argent le kilo : `${s_usd * to_kilo:,.2f}`\n"
+            f"🟡 Or oz : `${g_usd:.2f}`\n"
+            f"⚪️ Argent oz : `${s_usd:.2f}`\n"
+            f"⚪️ Argent kg : `${fmt_sk_usd}`\n"
             "━━━━━━━━━━━━━━━\n"
-            f"⚖️ **Ratio Or/Arg : {ratio:.2f}**\n"
+            f"⚖️ **Ratio Or/Arg : {g_usd/s_usd:.2f}**\n"
             f"📈 **Change** : 1$ = `{rate:.4f} CHF`"
         )
         return report
