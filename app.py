@@ -3,14 +3,13 @@ import telebot
 import threading
 import yfinance as yf
 import time
-import pandas as pd
 from flask import Flask
 
 # --- 1. CONFIGURATION ---
 app = Flask(__name__)
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
-# N'oubliez pas de mettre votre ID numérique ici
-MY_CHAT_ID = os.environ.get('MY_CHAT_ID', '929066398') 
+# Remplace par ton ID numérique (ex: 12345678)
+MY_CHAT_ID = "929066398" 
 bot = telebot.TeleBot(TOKEN)
 
 @app.route('/')
@@ -18,71 +17,74 @@ def health(): return "Bot en ligne", 200
 
 def get_market_status():
     try:
-        # Récupération des métaux (en USD) et du taux de change USD/CHF
-        gold = yf.Ticker("GC=F").history(period="5d", interval="1h")
-        silver = yf.Ticker("SI=F").history(period="5d", interval="1h")
-        usd_chf = yf.Ticker("USDCHF=X").history(period="1d")['Close'].iloc[-1]
+        # Récupération des métaux (USD) et du taux USD/CHF
+        gold = yf.Ticker("GC=F").history(period="2d")
+        silver = yf.Ticker("SI=F").history(period="2d")
+        usd_chf_ticker = yf.Ticker("USDCHF=X").history(period="1d")
         
         g_usd = gold['Close'].iloc[-1]
         s_usd = silver['Close'].iloc[-1]
+        rate = usd_chf_ticker['Close'].iloc[-1]
         
-        # Conversion en CHF
-        g_chf = g_usd * usd_chf
-        s_chf = s_usd * usd_chf
-        
+        # Conversions
+        g_chf = g_usd * rate
+        s_chf = s_usd * rate
         ratio = g_usd / s_usd
         
-        # Données volume pour l'argent
+        # Données pour alertes manipulation (Volume Silver)
         last_vol = silver['Volume'].iloc[-1]
-        avg_vol = silver['Volume'].mean()
-        price_change = ((s_usd - silver['Close'].iloc[-2]) / silver['Close'].iloc[-2]) * 100
+        avg_vol = yf.Ticker("SI=F").history(period="5d")['Volume'].mean()
         
-        return g_usd, g_chf, s_usd, s_chf, ratio, last_vol, avg_vol, price_change, usd_chf
+        return {
+            "g_usd": g_usd, "g_chf": g_chf,
+            "s_usd": s_usd, "s_chf": s_chf,
+            "ratio": ratio, "rate": rate,
+            "vol": last_vol, "avg_vol": avg_vol
+        }
     except Exception as e:
         print(f"Erreur data : {e}")
         return None
 
-# --- 2. SURVEILLANCE ET ALERTES ---
+# --- 2. SURVEILLANCE ET ALERTES AUTOMATIQUES ---
 def auto_monitor():
     while True:
         data = get_market_status()
         if data and MY_CHAT_ID != "929066398":
-            g_u, g_c, s_u, s_c, r, vol, avg_v, change, rate = data
-            
-            report = (f"🕒 **Rapport Horaire (CHF/USD)**\n\n"
-                      f"🟡 **Or** : `{g_c:.2f} CHF` (${g_u:.2f})\n"
-                      f"⚪️ **Argent** : `{s_c:.2f} CHF` (${s_u:.2f})\n"
-                      f"⚖️ **Ratio** : `{r:.2f}`\n"
-                      f"📉 **Change** : 1 USD = `{rate:.4f} CHF`\n"
-                      f"📊 **Vol. Arg** : `{int(vol)}`")
+            # Message horaire
+            msg = (f"🕒 **Rapport Horaire**\n\n"
+                   f"🟡 **Or (Once)**\n"
+                   f"└ `{data['g_chf']:.2f} CHF` | `${data['g_usd']:.2f}`\n\n"
+                   f"⚪️ **Argent (Once)**\n"
+                   f"└ `{data['s_chf']:.2f} CHF` | `${data['s_usd']:.2f}`\n\n"
+                   f"⚖️ **Ratio Au/Ag** : `{data['ratio']:.2f}`\n"
+                   f"📉 **Change** : 1$ = `{data['rate']:.4f} CHF`")
             
             try:
-                bot.send_message(MY_CHAT_ID, report, parse_mode='Markdown')
+                bot.send_message(MY_CHAT_ID, msg, parse_mode='Markdown')
             except: pass
 
-            # ALERTE MANIPULATION
-            if vol > (avg_v * 2.5) and change < -1.5:
-                alert = (f"🚨 **ALERTE MANIPULATION** 🚨\n"
-                         f"Volume suspect sur l'Argent !\n"
-                         f"Chute : `{change:.2f}%` | Vol : `{int(vol)}`")
+            # Alerte manipulation (Volume > 2x la moyenne)
+            if data['vol'] > (data['avg_vol'] * 2.2):
+                alert = (f"🚨 **ALERTE MANIPULATION PAPIER**\n"
+                         f"Volume suspect détecté sur l'argent !\n"
+                         f"Volume actuel : `{int(data['vol'])}`")
                 bot.send_message(MY_CHAT_ID, alert, parse_mode='Markdown')
 
+        # Pause de 60 minutes
         time.sleep(3600)
 
-# --- 3. COMMANDES ---
+# --- 3. COMMANDES MANUELLES ---
 @bot.message_handler(commands=['start', 'check'])
 def manual_check(message):
     data = get_market_status()
     if data:
-        g_u, g_c, s_u, s_c, r, vol, avg_v, change, rate = data
-        text = (f"📊 **Cours Actuels**\n\n"
-                f"🟡 **Or** : `{g_c:.2f} CHF`\n"
-                f"⚪️ **Argent** : `{s_c:.2f} CHF`\n"
-                f"⚖️ **Ratio Au/Ag** : `{r:.2f}`\n\n"
-                f"💵 1 USD = `{rate:.4f} CHF`")
+        text = (f"📊 **Cours en Temps Réel**\n\n"
+                f"🟡 Or : `{data['g_chf']:.2f} CHF` (${data['g_usd']:.2f})\n"
+                f"⚪️ Argent : `{data['s_chf']:.2f} CHF` (${data['s_usd']:.2f})\n"
+                f"⚖️ Ratio : `{data['ratio']:.2f}`")
         bot.reply_to(message, text, parse_mode='Markdown')
     else:
-        bot.reply_to(message, "Erreur de connexion aux marchés.")
+        bot.reply_to(message, "Erreur de récupération des données.")
 
 @bot.message_handler(commands=['id'])
 def show_id(message):
