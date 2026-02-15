@@ -7,13 +7,14 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask
 
+# --- INITIALISATION ---
 app = Flask(__name__)
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
-MY_CHAT_ID = "929066398" # <--- METS TON ID ICI
+MY_CHAT_ID = "929066398E" # <--- METS TON ID ICI
 bot = telebot.TeleBot(TOKEN)
 
 @app.route('/')
-def health(): return "Bot Gold/Silver Pro Active", 200
+def health(): return "Bot Gold/Silver Pro Ready", 200
 
 # --- RÉCUPÉRATION ETF ---
 def get_etf_price():
@@ -35,76 +36,61 @@ def get_variation_raw(current, previous):
     icon = "📈 +" if var > 0 else "📉 "
     return var, f"{icon}{var:.2f}%"
 
-# --- GÉNÉRATEUR DE RAPPORT ---
+# --- RAPPORT MARCHÉ ---
 def get_full_report():
-    gold_t = yf.Ticker("GC=F").history(period="5d")
-    silver_t = yf.Ticker("SI=F").history(period="5d")
-    fx_t = yf.Ticker("USDCHF=X").history(period="5d")
+    try:
+        gold_t = yf.Ticker("GC=F").history(period="5d")
+        silver_t = yf.Ticker("SI=F").history(period="5d")
+        fx_t = yf.Ticker("USDCHF=X").history(period="5d")
 
-    rate = fx_t['Close'].iloc[-1]
-    g_usd = gold_t['Close'].iloc[-1]
-    s_usd = silver_t['Close'].iloc[-1]
-    etf_chf = get_etf_price()
+        rate = fx_t['Close'].iloc[-1]
+        g_usd = gold_t['Close'].iloc[-1]
+        s_usd = silver_t['Close'].iloc[-1]
+        etf_chf = get_etf_price()
 
-    to_kilo = 32.1507
-    g_chf, s_chf = g_usd * rate, s_usd * rate
-    s_kg_chf = s_chf * to_kilo
-    
-    _, var_g_str = get_variation_raw(g_usd, gold_t['Close'].iloc[-2])
-    _, var_s_str = get_variation_raw(s_usd, silver_t['Close'].iloc[-2])
+        to_kilo = 32.1507
+        g_chf, s_chf = g_usd * rate, s_usd * rate
+        
+        _, var_g_str = get_variation_raw(g_usd, gold_t['Close'].iloc[-2])
+        _, var_s_str = get_variation_raw(s_usd, silver_t['Close'].iloc[-2])
 
-    report = (
-        "🕒 **RAPPORT MARCHÉ**\n"
-        "━━━━━━━━━━━━━━━\n"
-        "🇨🇭 **EN FRANCS SUISSES (CHF)**\n"
-        f"🟡 Or oz : `{g_chf:.2f} CHF`\n"
-        f"⚪️ Argent oz : `{s_chf:.2f} CHF`\n"
-        f"⚪️ Argent kg : `{f'{s_kg_chf:.2f}'.replace(',', '')} CHF`\n"
-        f"📉 ETF ZKB (ZSILC) : `{etf_chf:.2f} CHF`\n\n"
-        "🇺🇸 **EN DOLLARS (USD)**\n"
-        f"🟡 Or oz : `${g_usd:.2f}`\n"
-        f"⚪️ Argent oz : `${s_usd:.2f}`\n"
-        f"⚪️ Argent kg : `${f'{s_usd * to_kilo:.2f}'.replace(',', '')}`\n"
-        "━━━━━━━━━━━━━━━\n"
-        f"🟡 Var. Or : {var_g_str}\n"
-        f"⚪️ Var. Arg : {var_s_str}\n"
-        f"⚖️ **Ratio Or/Arg : {g_usd/s_usd:.2f}**"
-    )
-    return report
+        report = (
+            "🕒 **RAPPORT MARCHÉ**\n"
+            "━━━━━━━━━━━━━━━\n"
+            "🇨🇭 **EN FRANCS SUISSES (CHF)**\n"
+            f"🟡 Or oz : `{g_chf:.2f} CHF`\n"
+            f"⚪️ Argent oz : `{s_chf:.2f} CHF`\n"
+            f"⚪️ Argent kg : `{f'{s_chf * to_kilo:.2f}'.replace(',', '')} CHF`\n"
+            f"📉 ETF ZKB : `{etf_chf:.2f} CHF`\n\n"
+            "🇺🇸 **EN DOLLARS (USD)**\n"
+            f"🟡 Or oz : `${g_usd:.2f}`\n"
+            f"⚪️ Argent oz : `${s_usd:.2f}`\n"
+            "━━━━━━━━━━━━━━━\n"
+            f"🟡 Var. Or : {var_g_str}\n"
+            f"⚪️ Var. Arg : {var_s_str}\n"
+            f"⚖️ **Ratio Or/Arg : {g_usd/s_usd:.2f}**"
+        )
+        return report
+    except Exception as e: return f"Erreur : {e}"
 
-# --- ALERTES DE MANIPULATION ET AUTOMATISATION ---
+# --- AUTOMATISATION ET ALERTES ---
 def monitor():
-    last_g = None
-    last_s = None
-    
+    last_g, last_s = None, None
     while True:
         try:
-            # 1. Envoi du rapport horaire (toutes les 60 min)
-            report = get_full_report()
             if MY_CHAT_ID != "929066398":
-                bot.send_message(MY_CHAT_ID, report, parse_mode='Markdown')
-            
-            # 2. Détection de manipulation (mouvement > 2% en 1h)
-            current_g = yf.Ticker("GC=F").history(period="1d")['Close'].iloc[-1]
-            current_s = yf.Ticker("SI=F").history(period="1d")['Close'].iloc[-1]
-            
-            if last_g and last_s:
-                var_g, _ = get_variation_raw(current_g, last_g)
-                var_s, _ = get_variation_raw(current_s, last_s)
+                bot.send_message(MY_CHAT_ID, get_full_report(), parse_mode='Markdown')
                 
-                # Alerte si variation absolue > 2%
-                if abs(var_g) >= 2.0 or abs(var_s) >= 2.0:
-                    alert_msg = "🚨 **ALERTE MANIPULATION / VOLATILITÉ** 🚨\n\n"
-                    if abs(var_g) >= 2.0: alert_msg += f"🟡 Or : {var_g:.2f}% en 1h !\n"
-                    if abs(var_s) >= 2.0: alert_msg += f"⚪️ Argent : {var_s:.2f}% en 1h !\n"
-                    bot.send_message(MY_CHAT_ID, alert_msg, parse_mode='Markdown')
-            
-            last_g, last_s = current_g, current_s
-            
-        except Exception as e:
-            print(f"Erreur monitor: {e}")
-            
-        time.sleep(3600) # Attente 1 heure
+                curr_g = yf.Ticker("GC=F").history(period="1d")['Close'].iloc[-1]
+                curr_s = yf.Ticker("SI=F").history(period="1d")['Close'].iloc[-1]
+                if last_g and last_s:
+                    v_g, _ = get_variation_raw(curr_g, last_g)
+                    v_s, _ = get_variation_raw(curr_s, last_s)
+                    if abs(v_g) >= 2.0 or abs(v_s) >= 2.0:
+                        bot.send_message(MY_CHAT_ID, f"🚨 **ALERTE MOUVEMENT BRUTAL**\nOr: {v_g:.2f}% | Arg: {v_s:.2f}%")
+                last_g, last_s = curr_g, curr_s
+        except: pass
+        time.sleep(3600)
 
 # --- COMMANDES ---
 @bot.message_handler(commands=['check', 'start'])
@@ -114,17 +100,44 @@ def manual_check(message):
 @bot.message_handler(commands=['coffre'])
 def calcul_coffre(message):
     try:
+        # On récupère 2 jours de données pour comparer avec hier
         g_t = yf.Ticker("GC=F").history(period="2d")
         s_t = yf.Ticker("SI=F").history(period="2d")
         f_t = yf.Ticker("USDCHF=X").history(period="2d")
-        r = f_t['Close'].iloc[-1]
-        poids_arg_kg = (38 * 0.0311035) + (100 / 1000) + 6.0
-        val_or = (g_t['Close'].iloc[-1] * r) * 5
-        val_arg = (s_t['Close'].iloc[-1] * r * 32.1507) * poids_arg_kg
-        res = f"🏦 **VALEUR DU COFFRE**\n━━━━━━━━━━━━━━━\n🟡 **OR** : `{val_or:.2f} CHF`\n⚪️ **ARGENT** : `{val_arg:.2f} CHF`\n━━━━━━━━━━━━━━━\n💰 **TOTAL : {val_or + val_arg:.2f} CHF**"
-        bot.reply_to(message, res, parse_mode='Markdown')
-    except Exception as e: bot.reply_to(message, f"Erreur coffre : {e}")
+        
+        # Données Actuelles
+        r_now = f_t['Close'].iloc[-1]
+        p_g_now = g_t['Close'].iloc[-1] * r_now
+        p_s_now = s_t['Close'].iloc[-1] * r_now
+        
+        # Données d'hier
+        r_old = f_t['Close'].iloc[-2]
+        p_g_old = g_t['Close'].iloc[-2] * r_old
+        p_s_old = s_t['Close'].iloc[-2] * r_old
 
-if __name__ == "__main__":
-    threading.Thread(target=monitor, daemon=True).start()
-    bot.infinity_polling()
+        # Poids Argent Total en kg
+        kg_arg = (38 * 0.0311035) + (100 / 1000) + 6.0
+        
+        # Valeurs Actuelles
+        v_or_now = 5 * p_g_now
+        v_arg_now = kg_arg * p_s_now * 32.1507
+        total_now = v_or_now + v_arg_now
+
+        # Valeurs Hier
+        v_or_old = 5 * p_g_old
+        v_arg_old = kg_arg * p_s_old * 32.1507
+        total_old = v_or_old + v_arg_old
+
+        # Variation 24h
+        diff_chf = total_now - total_old
+        diff_pct = (diff_chf / total_old) * 100
+        signe = "+" if diff_chf > 0 else ""
+        icon = "📈" if diff_chf > 0 else "📉"
+
+        res = (
+            "🏦 **DÉTAIL DU COFFRE (CHF)**\n"
+            "━━━━━━━━━━━━━━━\n"
+            "🟡 **OR PHYSIQUE**\n"
+            f"• 5 oz : `{v_or_now:.2f} CHF`\n\n"
+            "⚪️ **ARGENT PHYSIQUE**\n"
+            f"• 38 oz, 100g, 6
