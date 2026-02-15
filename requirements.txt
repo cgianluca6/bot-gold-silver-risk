@@ -2,3 +2,5 @@ pyTelegramBotAPI
 yfinance
 pandas
 flask
+requests
+beautifulsoup4
