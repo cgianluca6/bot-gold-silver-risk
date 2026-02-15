@@ -14,9 +14,9 @@ MY_CHAT_ID = "929066398" # <--- METS TON ID ICI (ex: 512345678)
 bot = telebot.TeleBot(TOKEN)
 
 @app.route('/')
-def health(): return "Bot Online & Secure", 200
+def health(): return "Bot Gold/Silver Pro Ready", 200
 
-# --- FONCTION SCRAPING ETF ---
+# --- RÉCUPÉRATION ETF ---
 def get_etf_price():
     url = "https://www.finanzen.ch/etf/swisscanto-ch-silver-etf-eah-ch0183136024"
     try:
@@ -43,7 +43,7 @@ def get_full_report():
         etf_chf = get_etf_price()
         to_kilo = 32.1507
 
-        # Var 24h
+        # Variations Marché 24h
         v_g = ((g_usd - g_t['Close'].iloc[-2]) / g_t['Close'].iloc[-2]) * 100
         v_s = ((s_usd - s_t['Close'].iloc[-2]) / s_t['Close'].iloc[-2]) * 100
 
@@ -72,17 +72,22 @@ def monitor():
     while True:
         try:
             if MY_CHAT_ID != "929066398":
+                # Rapport horaire automatique
                 bot.send_message(MY_CHAT_ID, get_full_report(), parse_mode='Markdown')
                 
-                # Alerte Manipulation
+                # Alerte Manipulation (Mouvement > 2% en 1h)
                 t_g = yf.Ticker("GC=F").history(period="1d")
                 t_s = yf.Ticker("SI=F").history(period="1d")
                 if not t_g.empty and not t_s.empty:
                     cg, cs = t_g['Close'].iloc[-1], t_s['Close'].iloc[-1]
-                    if last_g and last_s:
+                    if last_g is not None and last_s is not None:
                         vg, vs = ((cg-last_g)/last_g)*100, ((cs-last_s)/last_s)*100
                         if abs(vg) >= 2.0 or abs(vs) >= 2.0:
-                            bot.send_message(MY_CHAT_ID, f"🚨 **ALERTE MANIPULATION**\nOr: {vg:+.2f}% | Arg: {vs:+.2f}%", parse_mode='Markdown')
+                            alert = "🚨 **ALERTE MANIPULATION** 🚨\n\n"
+                            alert += f"Mouvement brutal détecté :\n"
+                            if abs(vg) >= 2.0: alert += f"🟡 Or : {vg:+.2f}%\n"
+                            if abs(vs) >= 2.0: alert += f"⚪ Argent : {vs:+.2f}%\n"
+                            bot.send_message(MY_CHAT_ID, alert, parse_mode='Markdown')
                     last_g, last_s = cg, cs
         except: pass
         time.sleep(3600)
@@ -91,46 +96,56 @@ def monitor():
 
 @bot.message_handler(commands=['check', 'start'])
 def manual_check(message):
-    # --- DÉBUT SÉCURITÉ ---
     if str(message.chat.id) != str(MY_CHAT_ID):
         bot.reply_to(message, "❌ Accès refusé.")
         return
-    # --- FIN SÉCURITÉ ---
     bot.reply_to(message, get_full_report(), parse_mode='Markdown')
 
 @bot.message_handler(commands=['coffre'])
 def calcul_coffre(message):
-    # --- DÉBUT SÉCURITÉ ---
     if str(message.chat.id) != str(MY_CHAT_ID):
         bot.reply_to(message, "❌ Accès réservé.")
         return
-    # --- FIN SÉCURITÉ ---
     try:
-        g_now = yf.Ticker("GC=F").history(period="1d")['Close'].iloc[-1]
-        s_now = yf.Ticker("SI=F").history(period="1d")['Close'].iloc[-1]
-        rate = yf.Ticker("USDCHF=X").history(period="1d")['Close'].iloc[-1]
+        g_data = yf.Ticker("GC=F").history(period="5d")
+        s_data = yf.Ticker("SI=F").history(period="5d")
+        f_data = yf.Ticker("USDCHF=X").history(period="5d")
 
-        p_oz_g, p_oz_s = g_now * rate, s_now * rate
+        if g_data.empty or s_data.empty or f_data.empty:
+            bot.reply_to(message, "⚠️ Données Yahoo indisponibles.")
+            return
+
+        rate = f_data['Close'].iloc[-1]
+        p_oz_g = g_data['Close'].iloc[-1] * rate
+        p_oz_s = s_data['Close'].iloc[-1] * rate
+        p_kg_s = p_oz_s * 32.1507
+        p_gr_s = p_kg_s / 1000
+
+        # Détail inventaire
         v_5or = 5 * p_oz_g
         v_38arg = 38 * p_oz_s
-        v_100g = 0.1 * p_oz_s * 32.1507
-        v_6kg = 6 * p_oz_s * 32.1507
+        v_100g = 100 * p_gr_s
+        v_6kg = 6 * p_kg_s
         
-        total_gen = v_5or + v_38arg + v_100g + v_6kg
+        total_arg = v_38arg + v_100g + v_6kg
+        total_gen = v_5or + total_arg
 
         res = (
-            "🏦 **INVENTAIRE DU COFFRE**\n"
+            "🏦 **INVENTAIRE DÉTAILLÉ DU COFFRE**\n"
             "━━━━━━━━━━━━━━━\n"
-            f"🟡 5 oz d'or : `{v_5or:.2f} CHF`\n"
-            f"⚪ 38 oz argent : `{v_38arg:.2f} CHF`\n"
-            f"⚪ 100 g argent : `{v_100g:.2f} CHF`\n"
-            f"⚪ 6 kg argent : `{v_6kg:.2f} CHF`\n"
+            "🟡 **OR PHYSIQUE**\n"
+            f"• 5 oz d'or : `{v_5or:.2f} CHF`\n\n"
+            "⚪ **ARGENT PHYSIQUE**\n"
+            f"• 38 oz argent : `{v_38arg:.2f} CHF`\n"
+            f"• 100 g argent : `{v_100g:.2f} CHF`\n"
+            f"• 6 kg argent : `{v_6kg:.2f} CHF`\n"
             "━━━━━━━━━━━━━━━\n"
+            f"💰 **SOUS-TOTAL ARGENT : {total_arg:.2f} CHF**\n"
             f"🏆 **VALEUR TOTALE : {total_gen:.2f} CHF**"
         )
         bot.reply_to(message, res, parse_mode='Markdown')
     except:
-        bot.reply_to(message, "⚠️ Erreur prix temps réel.")
+        bot.reply_to(message, "⚠️ Erreur technique lors du calcul.")
 
 # --- LANCEMENT ---
 if __name__ == "__main__":
