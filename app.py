@@ -73,7 +73,7 @@ def monitor():
     
     while True:
         try:
-            if MY_CHAT_ID != "TON_ID_NUMERIQUE":
+            if MY_CHAT_ID != "929066398":
                 # 1. RÉCUPÉRATION DES PRIX ACTUELS
                 ticker_g = yf.Ticker("GC=F").history(period="1d")
                 ticker_s = yf.Ticker("SI=F").history(period="1d")
