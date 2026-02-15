@@ -10,26 +10,40 @@ from flask import Flask
 # --- CONFIGURATION ---
 app = Flask(__name__)
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
-MY_CHAT_ID = "929066398" # <--- METS TON ID ICI
+MY_CHAT_ID = "929066398" 
 bot = telebot.TeleBot(TOKEN)
 
 @app.route('/')
-def health(): return "Bot Gold/Silver Pro Ready", 200
+def health(): return "Bot Silver Pro Active", 200
 
-# --- SCRAPING ETF ---
+# --- RÉCUPÉRATION ETF (CORRIGÉE) ---
 def get_etf_price():
     url = "https://www.finanzen.ch/etf/swisscanto-ch-silver-etf-eah-ch0183136024"
     try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        r = requests.get(url, headers=headers, timeout=10)
+        # On simule un vrai navigateur récent (Chrome sur Windows)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'fr,fr-FR;q=0.8,en-US;q=0.5,en;q=0.3',
+        }
+        r = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(r.text, 'html.parser')
+        
+        # On cherche la balise par sa classe spécifique sur Finanzen.ch
         price_tag = soup.find("span", class_="price-section__current-value")
+        
         if price_tag:
-            return float(price_tag.text.replace("'", "").replace("CHF", "").replace(" ", "").strip())
-    except: pass
-    return 0.0
+            # Nettoyage complet : on vire les espaces, les apostrophes et le texte "CHF"
+            raw_text = price_tag.get_text(strip=True)
+            clean_text = raw_text.replace("'", "").replace("CHF", "").replace(" ", "").strip()
+            return float(clean_text)
+        
+        return 0.0
+    except Exception as e:
+        print(f"Erreur Scraping ETF: {e}")
+        return 0.0
 
-# --- GÉNÉRATEUR DE RAPPORT (CHECK) ---
+# --- GÉNÉRATEUR DE RAPPORT ---
 def get_full_report():
     try:
         g_t = yf.Ticker("GC=F").history(period="2d")
@@ -87,18 +101,14 @@ def manual_check(message):
 @bot.message_handler(commands=['coffre'])
 def calcul_coffre(message):
     try:
-        # Données Spot temps réel
         g_now = yf.Ticker("GC=F").history(period="1d")['Close'].iloc[-1]
         s_now = yf.Ticker("SI=F").history(period="1d")['Close'].iloc[-1]
         rate = yf.Ticker("USDCHF=X").history(period="1d")['Close'].iloc[-1]
 
-        # Prix Unitaires CHF
-        p_oz_g = g_now * rate
-        p_oz_s = s_now * rate
+        p_oz_g, p_oz_s = g_now * rate, s_now * rate
         p_kg_s = p_oz_s * 32.1507
         p_gr_s = p_kg_s / 1000
 
-        # Détail des lignes
         v_5oz_or = 5 * p_oz_g
         v_38oz_arg = 38 * p_oz_s
         v_100g_arg = 100 * p_gr_s
@@ -108,23 +118,21 @@ def calcul_coffre(message):
         total_gen = v_5oz_or + total_arg
 
         res = (
-            "🏦 **INVENTAIRE DÉTAILLÉ DU COFFRE**\n"
+            "🏦 **INVENTAIRE DÉTAILLÉ**\n"
             "━━━━━━━━━━━━━━━\n"
-            "🟡 **OR**\n"
-            f"• 5 oz d'or : `{v_5oz_or:.2f} CHF`\n\n"
-            "⚪ **ARGENT**\n"
-            f"• 38 oz d'argent : `{v_38oz_arg:.2f} CHF`\n"
-            f"• 100 g d'argent : `{v_100g_arg:.2f} CHF`\n"
-            f"• 6 kg d'argent : `{v_6kg_arg:.2f} CHF`\n"
+            f"🟡 5 oz d'or : `{v_5oz_or:.2f} CHF`\n"
+            "━━━━━━━━━━━━━━━\n"
+            f"⚪ 38 oz argent : `{v_38oz_arg:.2f} CHF`\n"
+            f"⚪ 100 g argent : `{v_100g_arg:.2f} CHF`\n"
+            f"⚪ 6 kg argent : `{v_6kg_arg:.2f} CHF`\n"
             "━━━━━━━━━━━━━━━\n"
             f"💰 **TOTAL ARGENT : {total_arg:.2f} CHF**\n"
             f"🏆 **VALEUR TOTALE : {total_gen:.2f} CHF**"
         )
         bot.reply_to(message, res, parse_mode='Markdown')
-    except Exception as e:
-        bot.reply_to(message, "⚠️ Erreur de calcul : impossible de récupérer les prix actuels.")
+    except:
+        bot.reply_to(message, "⚠️ Erreur prix temps réel.")
 
-# --- LANCEMENT ---
 if __name__ == "__main__":
     threading.Thread(target=monitor, daemon=True).start()
     threading.Thread(target=lambda: bot.infinity_polling(), daemon=True).start()
