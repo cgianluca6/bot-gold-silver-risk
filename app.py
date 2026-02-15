@@ -69,25 +69,44 @@ def get_full_report():
 
 # --- MONITORING & ALERTES ---
 def monitor():
-    last_g, last_s = None, None
+    last_g, last_s = None, None # Mémoire pour comparer d'une heure à l'autre
+    
     while True:
         try:
-            if MY_CHAT_ID != "929066398":
-                # Rapport horaire
-                bot.send_message(MY_CHAT_ID, get_full_report(), parse_mode='Markdown')
-                
-                # Alerte Manipulation (2% en 1h)
+            if MY_CHAT_ID != "TON_ID_NUMERIQUE":
+                # 1. RÉCUPÉRATION DES PRIX ACTUELS
                 ticker_g = yf.Ticker("GC=F").history(period="1d")
                 ticker_s = yf.Ticker("SI=F").history(period="1d")
+                
                 if not ticker_g.empty and not ticker_s.empty:
-                    c_g, c_s = ticker_g['Close'].iloc[-1], ticker_s['Close'].iloc[-1]
-                    if last_g and last_s:
-                        vg = ((c_g - last_g) / last_g) * 100
-                        vs = ((c_s - last_s) / last_s) * 100
-                        if abs(vg) >= 2.0 or abs(vs) >= 2.0:
-                            bot.send_message(MY_CHAT_ID, f"🚨 **ALERTE MANIPULATION**\nOr: {vg:+.2f}% | Arg: {vs:+.2f}%", parse_mode='Markdown')
-                    last_g, last_s = c_g, c_s
-        except: pass
+                    current_g = ticker_g['Close'].iloc[-1]
+                    current_s = ticker_s['Close'].iloc[-1]
+
+                    # 2. ENVOI DU RAPPORT HORAIRE AUTOMATIQUE
+                    # (On l'envoie à chaque tour de boucle, soit toutes les heures)
+                    bot.send_message(MY_CHAT_ID, get_full_report(), parse_mode='Markdown')
+
+                    # 3. VÉRIFICATION DE LA MANIPULATION (si on a déjà une valeur précédente)
+                    if last_g is not None and last_s is not None:
+                        var_g = ((current_g - last_g) / last_g) * 100
+                        var_s = ((current_s - last_s) / last_s) * 100
+                        
+                        # Seuil de 2% (Hausse ou Baisse)
+                        if abs(var_g) >= 2.0 or abs(var_s) >= 2.0:
+                            alert = "🚨 **ALERTE VOLATILITÉ / MANIPULATION** 🚨\n\n"
+                            alert += "Mouvement suspect détecté sur le cours papier :\n"
+                            if abs(var_g) >= 2.0: alert += f"🟡 Or : {var_g:+.2f}% en 1h\n"
+                            if abs(var_s) >= 2.0: alert += f"⚪ Argent : {var_s:+.2f}% en 1h\n"
+                            bot.send_message(MY_CHAT_ID, alert, parse_mode='Markdown')
+
+                    # 4. MISE À JOUR DE LA MÉMOIRE POUR LA PROCHAINE HEURE
+                    last_g = current_g
+                    last_s = current_s
+
+        except Exception as e:
+            print(f"Erreur dans le monitoring : {e}")
+            
+        # 5. ATTENTE DE 60 MINUTES (3600 secondes)
         time.sleep(3600)
 
 # --- COMMANDE COFFRE (DÉTAILLÉ + VARIATION 24H) ---
