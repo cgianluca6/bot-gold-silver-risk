@@ -16,32 +16,27 @@ bot = telebot.TeleBot(TOKEN)
 @app.route('/')
 def health(): return "Bot Gold/Silver Pro Active", 200
 
-# --- RÉCUPÉRATION ETF ZKB (VIA GOOGLE FINANCE) ---
+# --- RÉCUPÉRATION ETF ZKB (VIA yahoo FINANCE) ---
 def get_etf_price():
-    # Liste des tickers Yahoo possibles pour l'ETF ZKB Silver CHF
-    # ZSIL.SW est le plus courant pour la cotation SIX en CHF
-    tickers = ["ZSIL.SW", "ZSILCHF.SW"]
+    # Ticker officiel Yahoo pour la classe CHF (18313602)
+    ticker_reel = "ZSILHC.SW" 
     
-    for t in tickers:
-        try:
-            data = yf.Ticker(t).history(period="1d")
-            if not data.empty:
-                return data['Close'].iloc[-1]
-        except:
-            continue
-            
-    # Si Yahoo échoue, on tente une extraction propre sur Google Finance
     try:
-        url = "https://www.google.com/finance/quote/ZSIL:SWX"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=5)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        price_div = soup.find("div", {"class": "YMlKec fxKbKc"})
-        if price_div:
-            return float(price_div.text.replace("CHF", "").replace("'", "").strip())
-    except:
-        pass
-
+        # On interroge Yahoo Finance
+        etf = yf.Ticker(ticker_reel)
+        data = etf.history(period="1d")
+        
+        if not data.empty:
+            return data['Close'].iloc[-1]
+        
+        # Sécurité si le marché est fermé (on prend le dernier cours connu sur 5 jours)
+        data_back = etf.history(period="5d")
+        if not data_back.empty:
+            return data_back['Close'].iloc[-1]
+            
+    except Exception as e:
+        print(f"Erreur de récupération : {e}")
+        
     return 0.0
 # --- GÉNÉRATEUR DE RAPPORT MARCHÉ ---
 def get_full_report():
