@@ -18,32 +18,31 @@ def health(): return "Bot Gold/Silver Pro Active", 200
 
 # --- RÉCUPÉRATION ETF ZKB (VIA GOOGLE FINANCE) ---
 def get_etf_price():
-    try:
-        # Ticker Google pour ZKB Silver ETF en CHF
-        url = "https://www.google.com/finance/quote/ZSILC:SWX"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = requests.get(url, headers=headers, timeout=10)
-        
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            # La classe YMlKec fxKbKc est le standard actuel de Google Finance pour le prix
-            price_div = soup.find("div", {"class": "YMlKec fxKbKc"})
-            if price_div:
-                price_txt = price_div.text.replace("CHF", "").replace(" ", "").replace("'", "").strip()
-                return float(price_txt)
-    except Exception as e:
-        print(f"Erreur Google Finance: {e}")
+    # Liste des tickers Yahoo possibles pour l'ETF ZKB Silver CHF
+    # ZSIL.SW est le plus courant pour la cotation SIX en CHF
+    tickers = ["ZSIL.SW", "ZSILCHF.SW"]
     
-    # --- PLAN B : CALCUL DE SECOURS (Si Google bloque) ---
+    for t in tickers:
+        try:
+            data = yf.Ticker(t).history(period="1d")
+            if not data.empty:
+                return data['Close'].iloc[-1]
+        except:
+            continue
+            
+    # Si Yahoo échoue, on tente une extraction propre sur Google Finance
     try:
-        s_data = yf.Ticker("SI=F").history(period="1d")
-        f_data = yf.Ticker("USDCHF=X").history(period="1d")
-        if not s_data.empty and not f_data.empty:
-            # Calibré pour correspondre à la parité de l'ETF (~130.72)
-            return s_data['Close'].iloc[-1] * f_data['Close'].iloc[-1] * 5.187
-    except: pass
-    return 0.0
+        url = "https://www.google.com/finance/quote/ZSIL:SWX"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        price_div = soup.find("div", {"class": "YMlKec fxKbKc"})
+        if price_div:
+            return float(price_div.text.replace("CHF", "").replace("'", "").strip())
+    except:
+        pass
 
+    return 0.0
 # --- GÉNÉRATEUR DE RAPPORT MARCHÉ ---
 def get_full_report():
     try:
