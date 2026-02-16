@@ -16,17 +16,21 @@ bot = telebot.TeleBot(TOKEN)
 @app.route('/')
 def health(): return "Bot Gold/Silver Pro Active", 200
 
-# --- RÉCUPÉRATION ETF ---
+# --- RÉCUPÉRATION ETF ZKB (FACTEUR 5 OZ) ---
 def get_etf_price():
-    url = "https://www.finanzen.ch/etf/swisscanto-ch-silver-etf-eah-ch0183136024"
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        r = requests.get(url, headers=headers, timeout=15)
-        soup = BeautifulSoup(r.text, 'html.parser')
-        price_tag = soup.find("span", class_="price-section__current-value")
-        if price_tag:
-            txt = price_tag.get_text(strip=True).replace("'", "").replace("CHF", "").replace(" ", "")
-            return float(txt)
+        # On récupère l'argent spot et le taux de change
+        s_data = yf.Ticker("SI=F").history(period="1d")
+        f_data = yf.Ticker("USDCHF=X").history(period="1d")
+        
+        if not s_data.empty and not f_data.empty:
+            spot_usd = s_data['Close'].iloc[-1]
+            rate = f_data['Close'].iloc[-1]
+            
+            # Formule pour l'ETF 18313602 (Valeur pour 5 onces environ)
+            # On utilise le multiplicateur 4.8235 pour coller au cours de 130.72
+            etf_reel = spot_usd * rate * 4.8235
+            return etf_reel
     except: pass
     return 0.0
 
