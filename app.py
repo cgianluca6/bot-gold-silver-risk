@@ -16,22 +16,22 @@ bot = telebot.TeleBot(TOKEN)
 @app.route('/')
 def health(): return "Bot Gold/Silver Pro Active", 200
 
-# --- RÉCUPÉRATION ETF ZKB (FACTEUR 5 OZ) ---
+# --- RÉCUPÉRATION ETF ZKB (VIA TICKER DIRECT ZSILC.SW) ---
 def get_etf_price():
     try:
-        # On récupère l'argent spot et le taux de change
-        s_data = yf.Ticker("SI=F").history(period="1d")
-        f_data = yf.Ticker("USDCHF=X").history(period="1d")
+        # ZSILC.SW est le ticker pour ZKB Silver ETF class (CHF)
+        etf_ticker = yf.Ticker("ZSILC.SW")
+        etf_data = etf_ticker.history(period="1d")
         
-        if not s_data.empty and not f_data.empty:
-            spot_usd = s_data['Close'].iloc[-1]
-            rate = f_data['Close'].iloc[-1]
-            
-            # Formule pour l'ETF 18313602 (Valeur pour 5 onces environ)
-            # On utilise le multiplicateur 4.8235 pour coller au cours de 130.72
-            etf_reel = spot_usd * rate * 4.8235
-            return etf_reel
-    except: pass
+        if not etf_data.empty:
+            # On prend la dernière clôture connue
+            return etf_data['Close'].iloc[-1]
+        else:
+            # Si le marché est fermé ou donnée vide, on tente sur 5 jours
+            etf_data = etf_ticker.history(period="5d")
+            return etf_data['Close'].iloc[-1]
+    except Exception as e:
+        print(f"Erreur Yahoo ZSILC: {e}")
     return 0.0
 
 # --- GÉNÉRATEUR DE RAPPORT MARCHÉ ---
