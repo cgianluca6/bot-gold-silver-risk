@@ -16,22 +16,32 @@ bot = telebot.TeleBot(TOKEN)
 @app.route('/')
 def health(): return "Bot Gold/Silver Pro Active", 200
 
-# --- RÉCUPÉRATION ETF ZKB (VIA TICKER DIRECT ZSILC.SW) ---
+# --- RÉCUPÉRATION ETF ZKB (VIA GOOGLE FINANCE) ---
 def get_etf_price():
     try:
-        # ZSILC.SW est le ticker pour ZKB Silver ETF class (CHF)
-        etf_ticker = yf.Ticker("ZSILC.SW")
-        etf_data = etf_ticker.history(period="1d")
+        # Ticker Google pour ZKB Silver ETF en CHF
+        url = "https://www.google.com/finance/quote/ZSILC:SWX"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+        response = requests.get(url, headers=headers, timeout=10)
         
-        if not etf_data.empty:
-            # On prend la dernière clôture connue
-            return etf_data['Close'].iloc[-1]
-        else:
-            # Si le marché est fermé ou donnée vide, on tente sur 5 jours
-            etf_data = etf_ticker.history(period="5d")
-            return etf_data['Close'].iloc[-1]
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            # La classe YMlKec fxKbKc est le standard actuel de Google Finance pour le prix
+            price_div = soup.find("div", {"class": "YMlKec fxKbKc"})
+            if price_div:
+                price_txt = price_div.text.replace("CHF", "").replace(" ", "").replace("'", "").strip()
+                return float(price_txt)
     except Exception as e:
-        print(f"Erreur Yahoo ZSILC: {e}")
+        print(f"Erreur Google Finance: {e}")
+    
+    # --- PLAN B : CALCUL DE SECOURS (Si Google bloque) ---
+    try:
+        s_data = yf.Ticker("SI=F").history(period="1d")
+        f_data = yf.Ticker("USDCHF=X").history(period="1d")
+        if not s_data.empty and not f_data.empty:
+            # Calibré pour correspondre à la parité de l'ETF (~130.72)
+            return s_data['Close'].iloc[-1] * f_data['Close'].iloc[-1] * 5.187
+    except: pass
     return 0.0
 
 # --- GÉNÉRATEUR DE RAPPORT MARCHÉ ---
@@ -74,8 +84,7 @@ def monitor():
     last_g, last_s = None, None
     while True:
         try:
-            if MY_CHAT_ID != "929066398":
-                bot.send_message(MY_CHAT_ID, get_full_report(), parse_mode='Markdown')
+            if str(MY_CHAT_ID) != "929066398":
                 t_g = yf.Ticker("GC=F").history(period="1d")
                 t_s = yf.Ticker("SI=F").history(period="1d")
                 if not t_g.empty and not t_s.empty:
@@ -83,15 +92,12 @@ def monitor():
                     if last_g is not None and last_s is not None:
                         vg, vs = ((cg-last_g)/last_g)*100, ((cs-last_s)/last_s)*100
                         if abs(vg) >= 2.0 or abs(vs) >= 2.0:
-                            alert = "🚨 **ALERTE MANIPULATION** 🚨\n\n"
-                            if abs(vg) >= 2.0: alert += f"🟡 Or : {vg:+.2f}%\n"
-                            if abs(vs) >= 2.0: alert += f"⚪ Argent : {vs:+.2f}%\n"
-                            bot.send_message(MY_CHAT_ID, alert, parse_mode='Markdown')
+                            bot.send_message(MY_CHAT_ID, f"🚨 **ALERTE**\nOr: {vg:+.2f}% | Arg: {vs:+.2f}%", parse_mode='Markdown')
                     last_g, last_s = cg, cs
         except: pass
         time.sleep(3600)
 
-# --- COMMANDES ---
+# --- COMMANDES (SÉCURITÉ STRICTE) ---
 
 @bot.message_handler(commands=['check', 'start'])
 def manual_check(message):
@@ -110,50 +116,38 @@ def calcul_coffre(message):
         s_data = yf.Ticker("SI=F").history(period="5d")
         f_data = yf.Ticker("USDCHF=X").history(period="5d")
 
-        # PRIX ACTUELS (Maintenant)
         r_now = f_data['Close'].iloc[-1]
-        p_oz_g = g_data['Close'].iloc[-1] * r_now
-        p_oz_s = s_data['Close'].iloc[-1] * r_now
+        p_oz_g, p_oz_s = g_data['Close'].iloc[-1] * r_now, s_data['Close'].iloc[-1] * r_now
         p_kg_s = p_oz_s * 32.1507
         p_gr_s = p_kg_s / 1000
 
-        # PRIX HIER (Pour variation)
         r_old = f_data['Close'].iloc[-2]
-        p_oz_g_old = g_data['Close'].iloc[-2] * r_old
-        p_oz_s_old = s_data['Close'].iloc[-2] * r_old
+        p_oz_g_old, p_oz_s_old = g_data['Close'].iloc[-2] * r_old, s_data['Close'].iloc[-2] * r_old
         p_kg_s_old = p_oz_s_old * 32.1507
         p_gr_s_old = p_kg_s_old / 1000
 
-        # CALCUL INVENTAIRE ACTUEL
-        v_5or = 5 * p_oz_g
-        v_38arg = 38 * p_oz_s
-        v_100g = 100 * p_gr_s
-        v_6kg = 6 * p_kg_s
-        total_now = v_5or + v_38arg + v_100g + v_6kg
-
-        # CALCUL INVENTAIRE HIER
+        # Calcul Totaux
+        total_now = (5 * p_oz_g) + (38 * p_oz_s) + (100 * p_gr_s) + (6 * p_kg_s)
         old_total = (5 * p_oz_g_old) + (38 * p_oz_s_old) + (100 * p_gr_s_old) + (6 * p_kg_s_old)
         
         diff_chf = total_now - old_total
         diff_perc = (diff_chf / old_total) * 100
 
         res = (
-            "🏦 **INVENTAIRE DÉTAILLÉ DU COFFRE**\n"
+            "🏦 **INVENTAIRE DU COFFRE**\n"
             "━━━━━━━━━━━━━━━\n"
-            "🟡 **OR PHYSIQUE**\n"
-            f"• 5 oz d'or : `{v_5or:.2f} CHF`\n\n"
-            "⚪ **ARGENT PHYSIQUE**\n"
-            f"• 38 oz argent : `{v_38arg:.2f} CHF`\n"
-            f"• 100 g argent : `{v_100g:.2f} CHF`\n"
-            f"• 6 kg argent : `{v_6kg:.2f} CHF`\n"
+            f"🟡 5 oz d'or : `{5 * p_oz_g:.2f} CHF`\n"
+            f"⚪ 38 oz argent : `{38 * p_oz_s:.2f} CHF`\n"
+            f"⚪ 100 g argent : `{100 * p_gr_s:.2f} CHF`\n"
+            f"⚪ 6 kg argent : `{6 * p_kg_s:.2f} CHF`\n"
             "━━━━━━━━━━━━━━━\n"
             f"💰 **TOTAL : {total_now:.2f} CHF**\n\n"
             f"{'📈' if diff_chf > 0 else '📉'} **Variation 24h :**\n"
             f"`{diff_chf:+.2f} CHF` ({diff_perc:+.2f}%)"
         )
         bot.reply_to(message, res, parse_mode='Markdown')
-    except Exception as e:
-        bot.reply_to(message, "⚠️ Erreur technique lors du calcul.")
+    except:
+        bot.reply_to(message, "⚠️ Erreur calcul coffre.")
 
 if __name__ == "__main__":
     threading.Thread(target=monitor, daemon=True).start()
