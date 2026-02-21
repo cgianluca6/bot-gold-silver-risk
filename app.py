@@ -18,10 +18,10 @@ bot = telebot.TeleBot(TOKEN)
 # 🏦 TON COFFRE PHYSIQUE
 # Si tu achètes ou vends, tu n'as plus qu'à changer les chiffres ici !
 COFFRE = {
-    "or_oz": 5.0,
-    "argent_oz": 38.0,
-    "argent_g": 100.0,
-    "argent_kg": 6.0
+    "or_oz": 5,
+    "argent_oz": 38,
+    "argent_g": 100,
+    "argent_kg": 6
 }
 
 # ==========================================
