@@ -11,7 +11,7 @@ from functools import wraps
 # ==========================================
 app = Flask(__name__)
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
-MY_CHAT_ID = "TON_ID_NUMERIQUE"  # <--- METS TON ID ICI
+MY_CHAT_ID = "929066398"  # <--- METS TON ID ICI
 
 bot = telebot.TeleBot(TOKEN)
 
