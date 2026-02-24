@@ -130,20 +130,40 @@ def check(message):
 
 @bot.message_handler(commands=['coffre'])
 @acces_restreint
+@bot.message_handler(commands=['coffre'])
+@acces_restreint
 def coffre(message):
     m = get_market_essentials()
     if not m: return
     
+    # Prix Actuels
     p_oz_g = m["g_usd"] * m["rate"]
     p_oz_s = m["s_usd"] * m["rate"]
     p_kg_s = p_oz_s * 32.1507
     p_g_s = p_kg_s / 1000
 
+    # Prix Veille (pour variation)
+    p_oz_g_old = m["g_usd_old"] * m["rate_old"]
+    p_oz_s_old = m["s_usd_old"] * m["rate_old"]
+    p_kg_s_old = p_oz_s_old * 32.1507
+    p_g_s_old = p_kg_s_old / 1000
+
+    # Calcul Valeurs Actuelles
     v_or_oz = COFFRE["or_oz"] * p_oz_g
     v_arg_oz = COFFRE["argent_oz"] * p_oz_s
     v_arg_g = COFFRE["argent_g"] * p_g_s
     v_arg_kg = COFFRE["argent_kg"] * p_kg_s
-    total = v_or_oz + v_arg_oz + v_arg_g + v_arg_kg
+    total_now = v_or_oz + v_arg_oz + v_arg_g + v_arg_kg
+
+    # Calcul Valeurs Veille
+    total_old = (COFFRE["or_oz"] * p_oz_g_old) + \
+                (COFFRE["argent_oz"] * p_oz_s_old) + \
+                (COFFRE["argent_g"] * p_g_s_old) + \
+                (COFFRE["argent_kg"] * p_kg_s_old)
+
+    diff = total_now - total_old
+    perc = (diff / total_old) * 100 if total_old > 0 else 0
+    icone = "📈" if diff >= 0 else "📉"
 
     res = (
         "🏦 **DÉTAILS DU COFFRE**\n"
@@ -153,10 +173,11 @@ def coffre(message):
         f"⚪ {COFFRE['argent_g']} g arg. : `{v_arg_g:.2f} CHF`\n"
         f"⚪ {COFFRE['argent_kg']} kg arg. : `{v_arg_kg:.2f} CHF`\n"
         "━━━━━━━━━━━━━━━\n"
-        f"💰 **SOUS-TOTAL : {total:.2f} CHF**"
+        f"💰 **SOUS-TOTAL : {total_now:.2f} CHF**\n"
+        f"{icone} **Variation 24h :** `{diff:+.2f} CHF` ({perc:+.2f}%)"
     )
     bot.reply_to(message, res, parse_mode='Markdown')
-
+    
 @bot.message_handler(commands=['bourse'])
 @acces_restreint
 def bourse(message):
