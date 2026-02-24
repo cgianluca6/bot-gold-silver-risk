@@ -1,3 +1,5 @@
 pyTelegramBotAPI
 yfinance
 Flask
+requests
+beautifulsoup4
