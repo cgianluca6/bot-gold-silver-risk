@@ -108,8 +108,11 @@ def check(message):
     m = get_market_essentials()
     if not m: return bot.reply_to(message, "⚠️ Erreur marché.")
     
+    # Prix en CHF
     g_chf = m["g_usd"] * m["rate"]
     s_chf = m["s_usd"] * m["rate"]
+    
+    # Variations
     vg = ((m["g_usd"] - m["g_usd_old"]) / m["g_usd_old"]) * 100
     vs = ((m["s_usd"] - m["s_usd_old"]) / m["s_usd_old"]) * 100
 
@@ -121,13 +124,16 @@ def check(message):
         f"⚪ Argent oz : `{s_chf:.2f} CHF`\n"
         f"⚪ Argent kg : `{s_chf * 32.1507:.2f} CHF`\n"
         f"📉 ETF ZKB : `{m['etf_chf']:.2f} CHF`\n\n"
+        "🇺🇸 **EN DOLLARS (USD)**\n"
+        f"🟡 Or oz : `${m['g_usd']:.2f}`\n"
+        f"⚪ Argent oz : `${m['s_usd']:.2f}`\n\n"
         "📊 **VARIATIONS 24H**\n"
         f"🟡 Or : {vg:+.2f}%\n"
         f"⚪ Argent : {vs:+.2f}%\n"
         f"⚖️ Ratio Or/Arg : `{m['g_usd']/m['s_usd']:.2f}`"
     )
     bot.reply_to(message, res, parse_mode='Markdown')
-
+    
 @bot.message_handler(commands=['coffre'])
 @acces_restreint
 @bot.message_handler(commands=['coffre'])
