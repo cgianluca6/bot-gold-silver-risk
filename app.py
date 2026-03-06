@@ -214,14 +214,20 @@ def bourse(message):
 @acces_restreint
 def total_patrimoine(message):
     m = get_market_essentials()
-    if not m: return
+    if not m: return bot.reply_to(message, "⚠️ Erreur de connexion aux marchés.")
     
-    # Coffre (Valeur Marché)
+    # --- CALCUL COFFRE ---
     p_oz_g, p_oz_s = m["g_usd"] * m["rate"], m["s_usd"] * m["rate"]
-    val_c = (COFFRE["or_oz"] * p_oz_g) + (COFFRE["argent_oz"] * p_oz_s) + \
-            (COFFRE["argent_g"] * (p_oz_s*32.15/1000)) + (COFFRE["argent_kg"] * (p_oz_s*32.15))
+    p_kg_s = p_oz_s * 32.1507
+    p_g_s = p_kg_s / 1000
+
+    v_or = COFFRE["or_oz"] * p_oz_g
+    v_arg = (COFFRE["argent_oz"] * p_oz_s) + (COFFRE["argent_g"] * p_g_s) + (COFFRE["argent_kg"] * p_kg_s)
     
-    # Bourse
+    val_c_marche = v_or + v_arg
+    val_c_vente = (v_or * MARGE_RACHAT_OR) + (v_arg * MARGE_RACHAT_ARGENT)
+    
+    # --- CALCUL BOURSE ---
     val_b = 0.0
     for k, a in BOURSE.items():
         p_now, _ = get_asset_data(a["ticker"], is_pictet=(k=="Pictet"))
@@ -231,13 +237,21 @@ def total_patrimoine(message):
         elif k == "Pictet":
             val_b += (a["fallback_val"] * a["unites"])
 
+    # --- CALCULS FINAUX ---
+    total_marche = val_c_marche + val_b
+    total_liquide = val_c_vente + val_b
+
     res = (
-        "🌍 **PATRIMOINE GLOBAL**\n"
+        "🌍 **BILAN PATRIMOINE GLOBAL**\n"
         "━━━━━━━━━━━━━━━\n"
-        f"🏦 Coffre (Marché) : `{val_c:.2f} CHF`\n"
-        f"📊 Bourse : `{val_b:.2f} CHF`\n"
+        f"📊 **Bourse :** `{val_b:.2f} CHF`\n"
+        f"🏦 **Coffre (Marché) :** `{val_c_marche:.2f} CHF`\n"
+        f"💰 **Coffre (Vente) :** `{val_c_vente:.2f} CHF`\n"
         "━━━━━━━━━━━━━━━\n"
-        f"💰 **TOTAL : {val_c + val_b:.2f} CHF**"
+        f"📈 **TOTAL MARCHÉ : {total_marche:.2f} CHF**\n"
+        f"💵 **TOTAL LIQUIDE : {total_liquide:.2f} CHF**\n"
+        "━━━━━━━━━━━━━━━\n"
+        f"ℹ️ *L'écart de {(total_marche - total_liquide):.2f} CHF représente les frais de rachat de tes métaux physiques.*"
     )
     bot.reply_to(message, res, parse_mode='Markdown')
 
