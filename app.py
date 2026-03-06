@@ -20,7 +20,7 @@ bot = telebot.TeleBot(TOKEN)
 # 🏦 INVENTAIRE PHYSIQUE
 COFFRE = {
     "or_oz": 5,
-    "argent_oz": 38,
+    "argent_oz": 48,
     "argent_g": 100,
     "argent_kg": 6
 }
