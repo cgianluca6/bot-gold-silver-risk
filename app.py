@@ -35,12 +35,15 @@ BOURSE = {
     "UBS": {"nom": "UBS GOLD hCHF", "unites": 4, "ticker": "AUCHAH.SW", "devise": "CHF"}
 }
 
+# 🔍 MARGES DE RACHAT (SPREAD)
+MARGE_RACHAT_OR = 0.97    # -3%
+MARGE_RACHAT_ARGENT = 0.85 # -15%
+
 # ==========================================
-# 🛠️ FONCTIONS DE RÉCUPÉRATION SPÉCIALES
+# 🛠️ FONCTIONS DE RÉCUPÉRATION
 # ==========================================
 
 def get_pictet_price_web():
-    """Fallback si Yahoo échoue pour Pictet."""
     try:
         url = "https://www.wallstreet-online.de/fonds/pictet-water-p-chf"
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -54,7 +57,6 @@ def get_pictet_price_web():
     return 0.0
 
 def get_asset_data(ticker, is_pictet=False):
-    """Prix actuel et veille pour calcul des variations."""
     try:
         t = yf.Ticker(ticker)
         data = t.history(period="5d")
@@ -72,7 +74,6 @@ def get_asset_data(ticker, is_pictet=False):
     return None, None
 
 def get_market_essentials():
-    """Données critiques : Taux de change et métaux."""
     try:
         fx = yf.Ticker("USDCHF=X").history(period="5d")
         gold = yf.Ticker("GC=F").history(period="5d")
@@ -99,7 +100,7 @@ def acces_restreint(func):
     return wrapper
 
 # ==========================================
-# 📈 COMMANDES TELEGRAM
+# 📈 COMMANDES
 # ==========================================
 
 @bot.message_handler(commands=['check', 'start'])
@@ -108,11 +109,8 @@ def check(message):
     m = get_market_essentials()
     if not m: return bot.reply_to(message, "⚠️ Erreur marché.")
     
-    # Prix en CHF
     g_chf = m["g_usd"] * m["rate"]
     s_chf = m["s_usd"] * m["rate"]
-    
-    # Variations
     vg = ((m["g_usd"] - m["g_usd_old"]) / m["g_usd_old"]) * 100
     vs = ((m["s_usd"] - m["s_usd_old"]) / m["s_usd_old"]) * 100
 
@@ -133,9 +131,7 @@ def check(message):
         f"⚖️ Ratio Or/Arg : `{m['g_usd']/m['s_usd']:.2f}`"
     )
     bot.reply_to(message, res, parse_mode='Markdown')
-    
-@bot.message_handler(commands=['coffre'])
-@acces_restreint
+
 @bot.message_handler(commands=['coffre'])
 @acces_restreint
 def coffre(message):
@@ -148,42 +144,35 @@ def coffre(message):
     p_kg_s = p_oz_s * 32.1507
     p_g_s = p_kg_s / 1000
 
-    # Prix Veille (pour variation)
+    # Prix Veille
     p_oz_g_old = m["g_usd_old"] * m["rate_old"]
     p_oz_s_old = m["s_usd_old"] * m["rate_old"]
-    p_kg_s_old = p_oz_s_old * 32.1507
-    p_g_s_old = p_kg_s_old / 1000
+    total_old = (COFFRE["or_oz"] * p_oz_g_old) + (COFFRE["argent_oz"] * p_oz_s_old) + \
+                (COFFRE["argent_g"] * (p_oz_s_old*32.15/1000)) + (COFFRE["argent_kg"] * (p_oz_s_old*32.15))
 
-    # Calcul Valeurs Actuelles
-    v_or_oz = COFFRE["or_oz"] * p_oz_g
-    v_arg_oz = COFFRE["argent_oz"] * p_oz_s
-    v_arg_g = COFFRE["argent_g"] * p_g_s
-    v_arg_kg = COFFRE["argent_kg"] * p_kg_s
-    total_now = v_or_oz + v_arg_oz + v_arg_g + v_arg_kg
+    # Calcul Valeur Achat (Valeur Marché / Spot)
+    v_or = COFFRE["or_oz"] * p_oz_g
+    v_arg = (COFFRE["argent_oz"] * p_oz_s) + (COFFRE["argent_g"] * p_g_s) + (COFFRE["argent_kg"] * p_kg_s)
+    total_achat = v_or + v_arg
 
-    # Calcul Valeurs Veille
-    total_old = (COFFRE["or_oz"] * p_oz_g_old) + \
-                (COFFRE["argent_oz"] * p_oz_s_old) + \
-                (COFFRE["argent_g"] * p_g_s_old) + \
-                (COFFRE["argent_kg"] * p_kg_s_old)
+    # Calcul Valeur Vente (Rachat comptoir)
+    total_vente = (v_or * MARGE_RACHAT_OR) + (v_arg * MARGE_RACHAT_ARGENT)
 
-    diff = total_now - total_old
+    diff = total_achat - total_old
     perc = (diff / total_old) * 100 if total_old > 0 else 0
-    icone = "📈" if diff >= 0 else "📉"
 
     res = (
         "🏦 **DÉTAILS DU COFFRE**\n"
         "━━━━━━━━━━━━━━━\n"
-        f"🟡 {COFFRE['or_oz']} oz d'or : `{v_or_oz:.2f} CHF`\n"
-        f"⚪ {COFFRE['argent_oz']} oz arg. : `{v_arg_oz:.2f} CHF`\n"
-        f"⚪ {COFFRE['argent_g']} g arg. : `{v_arg_g:.2f} CHF`\n"
-        f"⚪ {COFFRE['argent_kg']} kg arg. : `{v_arg_kg:.2f} CHF`\n"
+        f"🟡 Or : `{v_or:.2f} CHF`\n"
+        f"⚪ Argent : `{v_arg:.2f} CHF`\n"
         "━━━━━━━━━━━━━━━\n"
-        f"💰 **SOUS-TOTAL : {total_now:.2f} CHF**\n"
-        f"{icone} **Variation 24h :** `{diff:+.2f} CHF` ({perc:+.2f}%)"
+        f"📈 **Valeur Marché : {total_achat:.2f} CHF**\n"
+        f"💰 **Valeur de Vente : {total_vente:.2f} CHF**\n\n"
+        f"{'📈' if diff>=0 else '📉'} Var 24h : `{diff:+.2f} CHF` ({perc:+.2f}%)"
     )
     bot.reply_to(message, res, parse_mode='Markdown')
-    
+
 @bot.message_handler(commands=['bourse'])
 @acces_restreint
 def bourse(message):
@@ -199,15 +188,12 @@ def bourse(message):
         if p_now:
             c_now = p_now * m["rate"] if a["devise"] == "USD" else p_now
             c_old = p_old * m["rate_old"] if a["devise"] == "USD" else p_old
-            v_now = c_now * a["unites"]
-            v_old = c_old * a["unites"]
+            v_now, v_old = c_now * a["unites"], c_old * a["unites"]
             total_now += v_now
             total_old += v_old
-            
             diff = v_now - v_old
             perc = (diff/v_old)*100 if v_old > 0 else 0
-            icone = "📈" if diff >= 0 else "📉"
-            lignes.append(f"🔹 **{a['nom']}** ({u})\n   `{v_now:.2f} CHF` | {icone} `{diff:+.2f}` ({perc:+.2f}%)")
+            lignes.append(f"🔹 **{a['nom']}** ({u})\n   `{v_now:.2f} CHF` | {'📈' if diff>=0 else '📉'} `{diff:+.2f}` ({perc:+.2f}%)")
         else:
             if k == "Pictet":
                 v_est = a["fallback_val"] * a["unites"]
@@ -219,13 +205,9 @@ def bourse(message):
                 
     diff_t = total_now - total_old
     perc_t = (diff_t/total_old)*100 if total_old > 0 else 0
-    res = (
-        "📊 **DÉTAILS BOURSE**\n"
-        "━━━━━━━━━━━━━━━\n" + "\n".join(lignes) +
-        "\n━━━━━━━━━━━━━━━\n"
-        f"💰 **SOUS-TOTAL : {total_now:.2f} CHF**\n"
-        f"{'🟢' if diff_t>=0 else '🔴'} Var 24h : `{diff_t:+.2f} CHF` ({perc_t:+.2f}%)"
-    )
+    res = (f"📊 **DÉTAILS BOURSE**\n━━━━━━━━━━━━━━━\n" + "\n".join(lignes) + 
+           f"\n━━━━━━━━━━━━━━━\n💰 **SOUS-TOTAL : {total_now:.2f} CHF**\n"
+           f"{'🟢' if diff_t>=0 else '🔴'} Var 24h : `{diff_t:+.2f} CHF` ({perc_t:+.2f}%)")
     bot.reply_to(message, res, parse_mode='Markdown')
 
 @bot.message_handler(commands=['total'])
@@ -234,12 +216,12 @@ def total_patrimoine(message):
     m = get_market_essentials()
     if not m: return
     
-    # Calcul Coffre
+    # Coffre (Valeur Marché)
     p_oz_g, p_oz_s = m["g_usd"] * m["rate"], m["s_usd"] * m["rate"]
     val_c = (COFFRE["or_oz"] * p_oz_g) + (COFFRE["argent_oz"] * p_oz_s) + \
             (COFFRE["argent_g"] * (p_oz_s*32.15/1000)) + (COFFRE["argent_kg"] * (p_oz_s*32.15))
     
-    # Calcul Bourse
+    # Bourse
     val_b = 0.0
     for k, a in BOURSE.items():
         p_now, _ = get_asset_data(a["ticker"], is_pictet=(k=="Pictet"))
@@ -252,8 +234,8 @@ def total_patrimoine(message):
     res = (
         "🌍 **PATRIMOINE GLOBAL**\n"
         "━━━━━━━━━━━━━━━\n"
-        f"🏦 Coffre Physique : `{val_c:.2f} CHF`\n"
-        f"📊 Portefeuille Bourse : `{val_b:.2f} CHF`\n"
+        f"🏦 Coffre (Marché) : `{val_c:.2f} CHF`\n"
+        f"📊 Bourse : `{val_b:.2f} CHF`\n"
         "━━━━━━━━━━━━━━━\n"
         f"💰 **TOTAL : {val_c + val_b:.2f} CHF**"
     )
