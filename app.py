@@ -13,11 +13,11 @@ from functools import wraps
 # ==========================================
 app = Flask(__name__)
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
-MY_CHAT_ID = "929066398" 
+MY_CHAT_ID = "929066398" # <--- METS TON ID ICI
 
 bot = telebot.TeleBot(TOKEN)
 
-# 🏦 COFFRE PHYSIQUE
+# 🏦 INVENTAIRE PHYSIQUE
 COFFRE = {
     "or_oz": 5,
     "argent_oz": 38,
@@ -35,15 +35,16 @@ BOURSE = {
     "UBS": {"nom": "UBS GOLD hCHF", "unites": 4, "ticker": "AUCHAH.SW", "devise": "CHF"}
 }
 
-# 🔍 MARGES DE RACHAT (SPREAD)
-MARGE_RACHAT_OR = 0.97    # -3%
-MARGE_RACHAT_ARGENT = 0.85 # -15%
+# 🔍 PARAMÈTRES DE RACHAT (SPREAD)
+MARGE_OR = 0.97    # -3% de frais à la revente
+MARGE_ARGENT = 0.85 # -15% de frais à la revente
 
 # ==========================================
-# 🛠️ FONCTIONS DE RÉCUPÉRATION
+# 🛠️ OUTILS DE RÉCUPÉRATION
 # ==========================================
 
 def get_pictet_price_web():
+    """Extraction web de secours pour Pictet Water."""
     try:
         url = "https://www.wallstreet-online.de/fonds/pictet-water-p-chf"
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -57,6 +58,7 @@ def get_pictet_price_web():
     return 0.0
 
 def get_asset_data(ticker, is_pictet=False):
+    """Prix actuel et prix de la veille."""
     try:
         t = yf.Ticker(ticker)
         data = t.history(period="5d")
@@ -74,6 +76,7 @@ def get_asset_data(ticker, is_pictet=False):
     return None, None
 
 def get_market_essentials():
+    """Taux de change et métaux précieux."""
     try:
         fx = yf.Ticker("USDCHF=X").history(period="5d")
         gold = yf.Ticker("GC=F").history(period="5d")
@@ -88,7 +91,7 @@ def get_market_essentials():
     except: return None
 
 # ==========================================
-# 🛡️ SÉCURITÉ
+# 🛡️ PROTECTION ACCÈS
 # ==========================================
 def acces_restreint(func):
     @wraps(func)
@@ -100,17 +103,16 @@ def acces_restreint(func):
     return wrapper
 
 # ==========================================
-# 📈 COMMANDES
+# 📈 COMMANDES TELEGRAM
 # ==========================================
 
 @bot.message_handler(commands=['check', 'start'])
 @acces_restreint
 def check(message):
     m = get_market_essentials()
-    if not m: return bot.reply_to(message, "⚠️ Erreur marché.")
+    if not m: return bot.reply_to(message, "⚠️ Erreur de connexion au marché.")
     
-    g_chf = m["g_usd"] * m["rate"]
-    s_chf = m["s_usd"] * m["rate"]
+    g_chf, s_chf = m["g_usd"] * m["rate"], m["s_usd"] * m["rate"]
     vg = ((m["g_usd"] - m["g_usd_old"]) / m["g_usd_old"]) * 100
     vs = ((m["s_usd"] - m["s_usd_old"]) / m["s_usd_old"]) * 100
 
@@ -126,8 +128,8 @@ def check(message):
         f"🟡 Or oz : `${m['g_usd']:.2f}`\n"
         f"⚪ Argent oz : `${m['s_usd']:.2f}`\n\n"
         "📊 **VARIATIONS 24H**\n"
-        f"🟡 Or : {vg:+.2f}%\n"
-        f"⚪ Argent : {vs:+.2f}%\n"
+        f"🟡 Or : `{vg:+.2f}%` \n"
+        f"⚪ Argent : `{vs:+.2f}%` \n"
         f"⚖️ Ratio Or/Arg : `{m['g_usd']/m['s_usd']:.2f}`"
     )
     bot.reply_to(message, res, parse_mode='Markdown')
@@ -138,38 +140,43 @@ def coffre(message):
     m = get_market_essentials()
     if not m: return
     
-    # Prix Actuels
-    p_oz_g = m["g_usd"] * m["rate"]
-    p_oz_s = m["s_usd"] * m["rate"]
+    # Prix Spot
+    p_oz_g, p_oz_s = m["g_usd"] * m["rate"], m["s_usd"] * m["rate"]
     p_kg_s = p_oz_s * 32.1507
     p_g_s = p_kg_s / 1000
 
     # Prix Veille
     p_oz_g_old = m["g_usd_old"] * m["rate_old"]
     p_oz_s_old = m["s_usd_old"] * m["rate_old"]
+    p_kg_s_old = p_oz_s_old * 32.1507
+    p_g_s_old = p_kg_s_old / 1000
+
+    # Valeurs Détail
+    v_or_oz = COFFRE["or_oz"] * p_oz_g
+    v_arg_oz = COFFRE["argent_oz"] * p_oz_s
+    v_arg_g = COFFRE["argent_g"] * p_g_s
+    v_arg_kg = COFFRE["argent_kg"] * p_kg_s
+    
+    total_marche = v_or_oz + v_arg_oz + v_arg_g + v_arg_kg
+    total_vente = (v_or_oz * MARGE_OR) + ((v_arg_oz + v_arg_g + v_arg_kg) * MARGE_ARGENT)
+
+    # Variation
     total_old = (COFFRE["or_oz"] * p_oz_g_old) + (COFFRE["argent_oz"] * p_oz_s_old) + \
-                (COFFRE["argent_g"] * (p_oz_s_old*32.15/1000)) + (COFFRE["argent_kg"] * (p_oz_s_old*32.15))
-
-    # Calcul Valeur Achat (Valeur Marché / Spot)
-    v_or = COFFRE["or_oz"] * p_oz_g
-    v_arg = (COFFRE["argent_oz"] * p_oz_s) + (COFFRE["argent_g"] * p_g_s) + (COFFRE["argent_kg"] * p_kg_s)
-    total_achat = v_or + v_arg
-
-    # Calcul Valeur Vente (Rachat comptoir)
-    total_vente = (v_or * MARGE_RACHAT_OR) + (v_arg * MARGE_RACHAT_ARGENT)
-
-    diff = total_achat - total_old
+                (COFFRE["argent_g"] * p_g_s_old) + (COFFRE["argent_kg"] * p_kg_s_old)
+    diff = total_marche - total_old
     perc = (diff / total_old) * 100 if total_old > 0 else 0
 
     res = (
         "🏦 **DÉTAILS DU COFFRE**\n"
         "━━━━━━━━━━━━━━━\n"
-        f"🟡 Or : `{v_or:.2f} CHF`\n"
-        f"⚪ Argent : `{v_arg:.2f} CHF`\n"
+        f"🟡 **{COFFRE['or_oz']} oz d'or :** `{v_or_oz:.2f} CHF`\n"
+        f"⚪ **{COFFRE['argent_oz']} oz arg. :** `{v_arg_oz:.2f} CHF`\n"
+        f"⚪ **{COFFRE['argent_g']} g arg. :** `{v_arg_g:.2f} CHF`\n"
+        f"⚪ **{COFFRE['argent_kg']} kg arg. :** `{v_arg_kg:.2f} CHF`\n"
         "━━━━━━━━━━━━━━━\n"
-        f"📈 **Valeur Marché : {total_achat:.2f} CHF**\n"
-        f"💰 **Valeur de Vente : {total_vente:.2f} CHF**\n\n"
-        f"{'📈' if diff>=0 else '📉'} Var 24h : `{diff:+.2f} CHF` ({perc:+.2f}%)"
+        f"📊 **Valeur Marché :** `{total_marche:.2f} CHF`\n"
+        f"💰 **Valeur de Vente :** `{total_vente:.2f} CHF`\n\n"
+        f"{'📈' if diff>=0 else '📉'} **Variation 24h :** `{diff:+.2f} CHF` ({perc:+.2f}%)"
     )
     bot.reply_to(message, res, parse_mode='Markdown')
 
@@ -178,8 +185,7 @@ def coffre(message):
 def bourse(message):
     m = get_market_essentials()
     if not m: return
-    lignes = []
-    total_now, total_old = 0.0, 0.0
+    lignes, total_now, total_old = [], 0.0, 0.0
     
     for k, a in BOURSE.items():
         p_now, p_old = get_asset_data(a["ticker"], is_pictet=(k=="Pictet"))
@@ -194,69 +200,61 @@ def bourse(message):
             diff = v_now - v_old
             perc = (diff/v_old)*100 if v_old > 0 else 0
             lignes.append(f"🔹 **{a['nom']}** ({u})\n   `{v_now:.2f} CHF` | {'📈' if diff>=0 else '📉'} `{diff:+.2f}` ({perc:+.2f}%)")
+        elif k == "Pictet":
+            v_est = a["fallback_val"] * a["unites"]
+            total_now += v_est
+            total_old += v_est
+            lignes.append(f"⚠️ **{a['nom']}** ({u}) : Indisponible\n   *Estimé : {v_est:.2f} CHF*")
         else:
-            if k == "Pictet":
-                v_est = a["fallback_val"] * a["unites"]
-                total_now += v_est
-                total_old += v_est
-                lignes.append(f"⚠️ **{a['nom']}** ({u}) : Indisponible\n   *Estimé : {v_est:.2f} CHF*")
-            else:
-                lignes.append(f"⚠️ **{a['nom']}** ({u}) : Indisponible")
+            lignes.append(f"⚠️ **{a['nom']}** ({u}) : Indisponible")
                 
     diff_t = total_now - total_old
     perc_t = (diff_t/total_old)*100 if total_old > 0 else 0
-    res = (f"📊 **DÉTAILS BOURSE**\n━━━━━━━━━━━━━━━\n" + "\n".join(lignes) + 
-           f"\n━━━━━━━━━━━━━━━\n💰 **SOUS-TOTAL : {total_now:.2f} CHF**\n"
-           f"{'🟢' if diff_t>=0 else '🔴'} Var 24h : `{diff_t:+.2f} CHF` ({perc_t:+.2f}%)")
+    res = (
+        "📊 **DÉTAILS BOURSE**\n"
+        "━━━━━━━━━━━━━━━\n" + "\n".join(lignes) + 
+        "\n━━━━━━━━━━━━━━━\n"
+        f"💰 **SOUS-TOTAL : {total_now:.2f} CHF**\n"
+        f"{'🟢' if diff_t>=0 else '🔴'} Var 24h : `{diff_t:+.2f} CHF` ({perc_t:+.2f}%)"
+    )
     bot.reply_to(message, res, parse_mode='Markdown')
 
 @bot.message_handler(commands=['total'])
 @acces_restreint
 def total_patrimoine(message):
     m = get_market_essentials()
-    if not m: return bot.reply_to(message, "⚠️ Erreur de connexion aux marchés.")
+    if not m: return
     
-    # --- CALCUL COFFRE ---
+    # Calcul Coffre
     p_oz_g, p_oz_s = m["g_usd"] * m["rate"], m["s_usd"] * m["rate"]
-    p_kg_s = p_oz_s * 32.1507
-    p_g_s = p_kg_s / 1000
-
     v_or = COFFRE["or_oz"] * p_oz_g
-    v_arg = (COFFRE["argent_oz"] * p_oz_s) + (COFFRE["argent_g"] * p_g_s) + (COFFRE["argent_kg"] * p_kg_s)
-    
+    v_arg = (COFFRE["argent_oz"] * p_oz_s) + (COFFRE["argent_g"] * (p_oz_s*32.15/1000)) + (COFFRE["argent_kg"] * (p_oz_s*32.15))
     val_c_marche = v_or + v_arg
-    val_c_vente = (v_or * MARGE_RACHAT_OR) + (v_arg * MARGE_RACHAT_ARGENT)
+    val_c_vente = (v_or * MARGE_OR) + (v_arg * MARGE_ARGENT)
     
-    # --- CALCUL BOURSE ---
+    # Calcul Bourse
     val_b = 0.0
     for k, a in BOURSE.items():
         p_now, _ = get_asset_data(a["ticker"], is_pictet=(k=="Pictet"))
         if p_now:
-            c_now = p_now * m["rate"] if a["devise"] == "USD" else p_now
-            val_b += (c_now * a["unites"])
-        elif k == "Pictet":
+            val_b += (p_now * m["rate"] if a["devise"] == "USD" else p_now) * a["unites"]
+        elif k == "Pictet": 
             val_b += (a["fallback_val"] * a["unites"])
 
-    # --- CALCULS FINAUX ---
-    total_marche = val_c_marche + val_b
-    total_liquide = val_c_vente + val_b
-
     res = (
-        "🌍 **BILAN PATRIMOINE GLOBAL**\n"
+        "🌍 **PATRIMOINE GLOBAL**\n"
         "━━━━━━━━━━━━━━━\n"
         f"📊 **Bourse :** `{val_b:.2f} CHF`\n"
         f"🏦 **Coffre (Marché) :** `{val_c_marche:.2f} CHF`\n"
         f"💰 **Coffre (Vente) :** `{val_c_vente:.2f} CHF`\n"
         "━━━━━━━━━━━━━━━\n"
-        f"📈 **TOTAL MARCHÉ : {total_marche:.2f} CHF**\n"
-        f"💵 **TOTAL LIQUIDE : {total_liquide:.2f} CHF**\n"
-        "━━━━━━━━━━━━━━━\n"
-        f"ℹ️ *L'écart de {(total_marche - total_liquide):.2f} CHF représente les frais de rachat de tes métaux physiques.*"
+        f"📈 **TOTAL MARCHÉ : {val_b + val_c_marche:.2f} CHF**\n"
+        f"💵 **TOTAL LIQUIDE : {val_b + val_c_vente:.2f} CHF**"
     )
     bot.reply_to(message, res, parse_mode='Markdown')
 
 # ==========================================
-# 🚀 RUN
+# 🚀 DÉMARRAGE
 # ==========================================
 @app.route('/')
 def health(): return "OK", 200
