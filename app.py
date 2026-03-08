@@ -13,14 +13,14 @@ from functools import wraps
 # ==========================================
 app = Flask(__name__)
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
-MY_CHAT_ID = "929066398" # <--- Vérifie que ton ID est correct ici
+MY_CHAT_ID = "929066398" 
 
 bot = telebot.TeleBot(TOKEN)
 
 # 🏦 COFFRE PHYSIQUE
 COFFRE = {
     "or_oz": 5,
-    "argent_oz": 38,
+    "argent_oz": 48,
     "argent_g": 100,
     "argent_kg": 6
 }
@@ -35,7 +35,7 @@ BOURSE = {
     "UBS": {"nom": "UBS GOLD hCHF", "unites": 4, "ticker": "AUCHAH.SW", "devise": "CHF"}
 }
 
-# 🪙 PORTEFEUILLE CRYPTO (NOUVEAU)
+# 🪙 PORTEFEUILLE CRYPTO
 CRYPTO = {
     "BTC": {"nom": "Bitcoin", "unites": 0.09118234, "ticker": "BTC-USD"},
     "ETH": {"nom": "Ethereum", "unites": 1.52356173, "ticker": "ETH-USD"},
@@ -146,10 +146,12 @@ def coffre(message):
     if not m: return
     
     p_oz_g, p_oz_s = m["g_usd"] * m["rate"], m["s_usd"] * m["rate"]
-    p_kg_s, p_g_s = p_oz_s * 32.1507, (p_oz_s * 32.1507) / 1000
+    p_kg_s = p_oz_s * 32.1507
+    p_g_s = p_kg_s / 1000
 
     p_oz_g_old, p_oz_s_old = m["g_usd_old"] * m["rate_old"], m["s_usd_old"] * m["rate_old"]
-    p_kg_s_old, p_g_s_old = p_oz_s_old * 32.1507, (p_oz_s_old * 32.1507) / 1000
+    p_kg_s_old = p_oz_s_old * 32.1507
+    p_g_s_old = p_kg_s_old / 1000
 
     v_or_oz = COFFRE["or_oz"] * p_oz_g
     v_arg_oz = COFFRE["argent_oz"] * p_oz_s
@@ -161,6 +163,7 @@ def coffre(message):
 
     total_old = (COFFRE["or_oz"] * p_oz_g_old) + (COFFRE["argent_oz"] * p_oz_s_old) + \
                 (COFFRE["argent_g"] * p_g_s_old) + (COFFRE["argent_kg"] * p_kg_s_old)
+    
     diff = total_m - total_old
     perc = (diff / total_old) * 100 if total_old > 0 else 0
 
@@ -243,7 +246,46 @@ def total_global(message):
     m = get_market_essentials()
     if not m: return
     
-    # Coffre
+    # 1. Coffre
     p_oz_g, p_oz_s = m["g_usd"] * m["rate"], m["s_usd"] * m["rate"]
     v_or = COFFRE["or_oz"] * p_oz_g
-    v_arg = (COFFRE["argent_oz"] * p_oz_s) + (COFFRE["argent_g"] * (p_oz_s*32.15
+    v_arg = (COFFRE["argent_oz"] * p_oz_s) + (COFFRE["argent_g"] * (p_oz_s*32.15/1000)) + (COFFRE["argent_kg"] * (p_oz_s*32.15))
+    val_c_m, val_c_v = v_or + v_arg, (v_or * MARGE_OR) + (v_arg * MARGE_ARGENT)
+    
+    # 2. Bourse
+    val_b = 0.0
+    for k, a in BOURSE.items():
+        p_now, _ = get_asset_data(a["ticker"], is_pictet=(k=="Pictet"))
+        if p_now: val_b += (p_now * m["rate"] if a["devise"] == "USD" else p_now) * a["unites"]
+        elif k == "Pictet": val_b += (a["fallback_val"] * a["unites"])
+
+    # 3. Crypto
+    val_crypto = 0.0
+    for k, a in CRYPTO.items():
+        p_now, _ = get_asset_data(a["ticker"])
+        if p_now: val_crypto += (p_now * m["rate"]) * a["unites"]
+
+    total_m, total_l = val_b + val_c_m + val_crypto, val_b + val_c_v + val_crypto
+
+    res = (
+        "🌍 **PATRIMOINE GLOBAL**\n"
+        "━━━━━━━━━━━━━━━\n"
+        f"📊 **Bourse :** `{val_b:.2f} CHF`\n"
+        f"🪙 **Crypto :** `{val_crypto:.2f} CHF`\n"
+        f"🏦 **Coffre (Marché) :** `{val_c_m:.2f} CHF`\n"
+        f"💰 **Coffre (Vente) :** `{val_c_v:.2f} CHF`\n"
+        "━━━━━━━━━━━━━━━\n"
+        f"📈 **TOTAL MARCHÉ : {total_m:.2f} CHF**\n"
+        f"💵 **TOTAL LIQUIDE : {total_l:.2f} CHF**"
+    )
+    bot.reply_to(message, res, parse_mode='Markdown')
+
+# ==========================================
+# 🚀 RUN
+# ==========================================
+@app.route('/')
+def health(): return "OK", 200
+
+if __name__ == "__main__":
+    threading.Thread(target=lambda: bot.infinity_polling(), daemon=True).start()
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
