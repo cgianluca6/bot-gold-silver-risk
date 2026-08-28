@@ -30,7 +30,7 @@ BOURSE = {
     "Nvidia": {"nom": "Nvidia", "unites": 4, "ticker": "NVDA", "devise": "USD"},
     "Pictet": {"nom": "Pictet Water", "unites": 2, "ticker": "0P0000YUS1.F", "devise": "CHF", "fallback_val": 550.0},
     "Ethereum": {"nom": "Share Ethereum", "unites": 25, "ticker": "AETH.SW", "devise": "CHF"},
-    "Swisscanto": {"nom": "Swisscanto EAH", "unites": 58, "ticker": "ZSILHC.SW", "devise": "CHF"},
+    "Swisscanto": {"nom": "Swisscanto EAH", "unites": 78, "ticker": "ZSILHC.SW", "devise": "CHF"},
     "Raiffeisen": {"nom": "Raiffeisen Gold", "unites": 2, "ticker": "RGLDOH.SW", "devise": "CHF"},
     "UBS": {"nom": "UBS GOLD hCHF", "unites": 4, "ticker": "AUCHAH.SW", "devise": "CHF"}
 }
